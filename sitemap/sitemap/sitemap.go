@@ -29,7 +29,7 @@ func isSameHost(parsedLink *url.URL, hostname string) bool {
 	return false
 }
 
-func GenSitemap(u string) ([]byte, error) {
+func CrawlSite(u string) []string {
 	res, err := http.Get(u)
 	if err != nil {
 		log.Fatal(err)
@@ -39,7 +39,6 @@ func GenSitemap(u string) ([]byte, error) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	sm := sitemapFactory()
 	visited := make(map[string]bool)
 	mutex := &sync.Mutex{}
 	links := lp.GetLinks(res.Body)
@@ -78,7 +77,6 @@ func GenSitemap(u string) ([]byte, error) {
 				mutex.Unlock()
 				return
 			}
-			sm.URLs = append(sm.URLs, &urlxml{Loc: link})
 			visited[link] = true
 			res, err := http.Get(link)
 			if err != nil {
@@ -89,5 +87,19 @@ func GenSitemap(u string) ([]byte, error) {
 		}()
 	}
 	wg.Wait()
+	listOfURLs := make([]string, len(visited))
+	i := 0
+	for key := range visited {
+		listOfURLs[i] = key
+	}
+	return listOfURLs
+}
+
+func GenSitemap(u string) ([]byte, error) {
+	sm := sitemapFactory()
+	URLs := CrawlSite(u)
+	for _, u := range URLs {
+		sm.URLs = append(sm.URLs, &urlxml{Loc: u})
+	}
 	return xml.MarshalIndent(sm, "", "  ")
 }
