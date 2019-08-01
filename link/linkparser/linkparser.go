@@ -1,6 +1,7 @@
 package linkparser
 
 import (
+	"io"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -23,8 +24,12 @@ func getText(node *html.Node) string {
 	return strings.Trim(text, "\n")
 }
 
-func GetLinks(firstNode *html.Node) []Link {
+func GetLinks(r io.Reader) []Link {
 
+	firstNode, err := html.Parse(r)
+	if err != nil {
+		panic(err)
+	}
 	var nodes []*html.Node
 	var links []Link
 

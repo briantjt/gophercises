@@ -5,8 +5,6 @@ import (
 	"fmt"
 	lp "gophercises/link/linkparser"
 	"os"
-
-	"golang.org/x/net/html"
 )
 
 func main() {
@@ -17,9 +15,5 @@ func main() {
 		fmt.Println(err)
 	}
 
-	firstNode, err := html.Parse(fileReader)
-	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println(lp.GetLinks(firstNode))
+	fmt.Printf("%+v", lp.GetLinks(fileReader))
 }
