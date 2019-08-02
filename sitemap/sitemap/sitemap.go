@@ -3,9 +3,9 @@ package sitemap
 import (
 	"encoding/xml"
 	lp "gophercises/link/linkparser"
-	"log"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 )
 
@@ -29,76 +29,57 @@ func isSameHost(parsedLink *url.URL, hostname string) bool {
 	return false
 }
 
-func CrawlSite(u string) []string {
+func CrawlSite(u string, depth int, visited map[string]bool, ch chan int, errs chan error, mutex *sync.Mutex) {
 	res, err := http.Get(u)
 	if err != nil {
-		log.Fatal(err)
+		errs <- err
+		return
 	}
 	parsedURL, err := url.Parse(res.Request.URL.String())
+	res.Request.Close = true
 	hostname := parsedURL.Host
 	if err != nil {
-		log.Fatal(err)
+		errs <- err
+		return
 	}
-	visited := make(map[string]bool)
-	mutex := &sync.Mutex{}
 	links := lp.GetLinks(res.Body)
-	var wg sync.WaitGroup
-	for {
-		mutex.Lock()
-		if len(links) == 0 {
-			mutex.Unlock()
-			break
+	res.Body.Close()
+	mutex.Lock()
+	visited[parsedURL.String()] = true
+	mutex.Unlock()
+	newURLs := 0
+	for _, link := range links {
+		var fullURL string
+		parsedLink, err := url.Parse(strings.TrimSpace(link.Href))
+		if err != nil {
+			errs <- err
+			return
 		}
-		link := links[0].Href
-		links = links[1:]
+		// Ignore anchor tags
+		if parsedLink.Fragment != "" || strings.Contains(parsedLink.Path, ".") {
+			continue
+		}
+		if parsedLink.IsAbs() {
+			if !isSameHost(parsedLink, hostname) {
+				continue
+			}
+		} else {
+			parsedLink.Host = hostname
+			parsedLink.Scheme = "https"
+		}
+		fullURL = parsedLink.String()
+		mutex.Lock()
+		if depth > 0 && !visited[fullURL] {
+			go CrawlSite(fullURL, depth-1, visited, ch, errs, mutex)
+			newURLs++
+		}
 		mutex.Unlock()
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			parsedLink, err := url.Parse(link)
-			if err != nil {
-				log.Fatal(err)
-			}
-			// Ignore anchor tags
-			if parsedLink.Fragment != "" {
-				return
-			}
-			if parsedLink.IsAbs() {
-				if !isSameHost(parsedLink, hostname) {
-					return
-				}
-			} else {
-				parsedLink.Host = hostname
-				parsedLink.Scheme = "https"
-				link = parsedLink.String()
-			}
-			mutex.Lock()
-			if visited[link] {
-				mutex.Unlock()
-				return
-			}
-			visited[link] = true
-			res, err := http.Get(link)
-			if err != nil {
-				return
-			}
-			links = append(links, lp.GetLinks(res.Body)...)
-			mutex.Unlock()
-		}()
 	}
-	wg.Wait()
-	listOfURLs := make([]string, len(visited))
-	i := 0
-	for key := range visited {
-		listOfURLs[i] = key
-	}
-	return listOfURLs
+	ch <- newURLs
 }
-
-func GenSitemap(u string) ([]byte, error) {
+func GenSitemap(urls []string) ([]byte, error) {
 	sm := sitemapFactory()
-	URLs := CrawlSite(u)
-	for _, u := range URLs {
+	for _, u := range urls {
 		sm.URLs = append(sm.URLs, &urlxml{Loc: u})
 	}
 	return xml.MarshalIndent(sm, "", "  ")
